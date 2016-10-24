@@ -55,6 +55,8 @@ do(State) ->
             end,
             rebar_api:debug("Diameter first files: ~p", [DiaFirst]),
 
+            ok = filelib:ensure_dir(filename:join(EbinDir, "dummy.beam")),
+
             rebar_base_compiler:run({State, AppDir, EbinDir},
                                 DiaFirst,
                                 DiaDir,
