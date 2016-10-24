@@ -45,6 +45,8 @@ do(State) ->
             DiaOpts = rebar_state:get(State, dia_opts, []),
             IncludeEbin = proplists:get_value(include, DiaOpts, []),
 
+            ok = filelib:ensure_dir(filename:join(EbinDir, "dummy.beam")),
+
             code:add_pathsz([EbinDir | filename:join([AppDir, IncludeEbin])]),
 
             DiaFirst = case rebar_state:get(State, dia_first_files, []) of
@@ -54,8 +56,6 @@ do(State) ->
                     [filename:join(DiaDir, filename:basename(F)) || F <- CompileFirst]
             end,
             rebar_api:debug("Diameter first files: ~p", [DiaFirst]),
-
-            ok = filelib:ensure_dir(filename:join(EbinDir, "dummy.beam")),
 
             rebar_base_compiler:run({State, AppDir, EbinDir},
                                 DiaFirst,
