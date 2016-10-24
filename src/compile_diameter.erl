@@ -1,4 +1,5 @@
 -module(compile_diameter).
+
 -behaviour(provider).
 
 -export([init/1, do/1, format_error/1]).
@@ -6,9 +7,6 @@
 -define(PROVIDER, compile).
 -define(DEPS, [{default, app_discovery}]).
 
-%% ===================================================================
-%% Public API
-%% ===================================================================
 -spec init(rebar_state:t()) -> {ok, rebar_state:t()}.
 init(State) ->
     Provider = providers:create([
@@ -24,59 +22,55 @@ init(State) ->
     ]),
     {ok, rebar_state:add_provider(State, Provider)}.
 
-
 -spec do(rebar_state:t()) -> {ok, rebar_state:t()} | {error, string()}.
 do(State) ->
     rebar_api:info("Compiling diameter files...", []),
-    Dir = rebar_state:dir(State),
-    case rebar_app_discover:find_app(Dir, all) of
-        false ->
-            AllApps = rebar_state:project_apps(State) ++ rebar_state:all_deps(State);
-        {true, AppInfo} ->
-            AllApps = rebar_state:project_apps(State) ++ rebar_state:all_deps(State) ++ [AppInfo]
-    end,
-    lists:foreach(fun(App) -> compile(State, App) end, AllApps),
+    Apps =
+        case rebar_state:current_app(State) of
+            undefined ->
+                rebar_state:project_apps(State);
+             AppInfo ->
+                [AppInfo]
+        end,
+    [
+        begin
+            AppDir = rebar_app_info:dir(AppInfo),
+            DiaDir = filename:join(AppDir, "dia"),
+            SrcDir = filename:join(AppDir, "src"),
+            EbinDir = rebar_app_info:ebin_dir(AppInfo),
+
+            rebar_api:debug("AppDir: ~p~n", [AppDir]),
+            rebar_api:debug("EbinDir: ~p~n", [AppDir]),
+
+            DiaOpts = rebar_state:get(State, dia_opts, []),
+            IncludeEbin = proplists:get_value(include, DiaOpts, []),
+
+            code:add_pathsz([EbinDir | filename:join([AppDir, IncludeEbin])]),
+
+            DiaFirst = case rebar_state:get(State, dia_first_files, []) of
+                [] ->
+                    [];
+                CompileFirst ->
+                    [filename:join(DiaDir, filename:basename(F)) || F <- CompileFirst]
+            end,
+            rebar_api:debug("Diameter first files: ~p", [DiaFirst]),
+
+            rebar_base_compiler:run({State, AppDir, EbinDir},
+                                DiaFirst,
+                                DiaDir,
+                                ".dia",
+                                SrcDir,
+                                ".erl",
+                                fun compile_dia/3)
+        end || AppInfo <- Apps
+    ],
     {ok, State}.
-
-
-compile(State, AppFile) ->
-    AppDir = rebar_app_info:dir(AppFile),
-    DiaDir = filename:join(AppDir, "dia"),
-    SrcDir = filename:join(AppDir, "src"),
-    EbinDir = rebar_app_info:ebin_dir(AppFile),
-    rebar_api:debug("AppDir: ~p~n", [AppDir]),
-    rebar_api:debug("EbinDir: ~p~n", [AppDir]),
-
-    DiaOpts = rebar_state:get(State, dia_opts, []),
-    IncludeEbin = proplists:get_value(include, DiaOpts, []),
-
-    code:add_pathsz([EbinDir | filename:join([AppDir, IncludeEbin])]),
-
-    DiaFirst = case rebar_state:get(State, dia_first_files, []) of
-        [] ->
-            [];
-        CompileFirst ->
-            [filename:join(DiaDir, filename:basename(F)) || F <- CompileFirst]
-    end,
-    rebar_api:debug("Diameter first files: ~p~n", [DiaFirst]),
-
-    rebar_base_compiler:run({State, AppDir, EbinDir},
-                            DiaFirst,
-                            DiaDir,
-                            ".dia",
-                            SrcDir,
-                            ".erl",
-                            fun compile_dia/3).
 
 -spec format_error(any()) ->  iolist().
 format_error(Reason) ->
     io_lib:format("~p", [Reason]).
 
-
-%% ===================================================================
 %% Internal functions
-%% ===================================================================
-
 short_desc() ->
     "Build Diameter (*.dia) sources".
 
@@ -88,15 +82,14 @@ desc() ->
        "                  exception of inherits)~n"
        "  {dia_first_files, []} (files in sequence to compile first)~n".
 
--spec compile_dia(file:filename(), file:filename(),
-                   rebar_config:config()) -> ok.
+-spec compile_dia(file:filename(), file:filename(), rebar_config:config()) -> ok.
 compile_dia(Source, Target, {State, AppDir, EbinDir}) ->
-    rebar_api:debug("Source diameter file: ~p~n", [Source]),
-    rebar_api:debug("Target diameter file: ~p~n", [Target]),
+    rebar_api:debug("Source diameter file: ~p", [Source]),
+    rebar_api:debug("Target diameter file: ~p", [Target]),
+    rebar_api:info("Compile diameter file: ~s", [filename:basename(Source)]),
 
     ok = filelib:ensure_dir(Target),
     ok = filelib:ensure_dir(filename:join([AppDir, "include", "dummy.hrl"])),
-    ok = filelib:ensure_dir(filename:join([EbinDir, "dummy.beam"])),
 
     OutDir = filename:join(AppDir, "src"),
     IncludeOutDir = filename:join(AppDir, "include"),
@@ -108,13 +101,12 @@ compile_dia(Source, Target, {State, AppDir, EbinDir}) ->
             FileName = dia_filename(Source, Spec),
             _ = diameter_codegen:from_dict(FileName, Spec, Opts, erl),
             _ = diameter_codegen:from_dict(FileName, Spec, IncludeOpts, hrl),
-            ErlCOpts = [{outdir, EbinDir}] ++
-                        rebar_state:get(State, erl_opts, []),
+            ErlCOpts = [{outdir, EbinDir}] ++ rebar_state:get(State, erl_opts, []),
             {Result, _} = compile:file(Target, ErlCOpts),
             Result;
         {error, Reason} ->
             rebar_api:error(
-                "Compiling ~s failed: ~s~n",
+                "Compiling ~s failed: ~s",
                 [Source, diameter_dict_util:format_error(Reason)]
             )
     end.
