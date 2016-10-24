@@ -88,7 +88,7 @@ desc() ->
 compile_dia(Source, Target, {State, AppDir, EbinDir}) ->
     rebar_api:debug("Source diameter file: ~p", [Source]),
     rebar_api:debug("Target diameter file: ~p", [Target]),
-    rebar_api:info("Compile diameter file: ~s", [filename:basename(Source)]),
+    rebar_api:info("Compiling diameter file: ~s", [filename:basename(Source)]),
 
     ok = filelib:ensure_dir(Target),
     ok = filelib:ensure_dir(filename:join([AppDir, "include", "dummy.hrl"])),
